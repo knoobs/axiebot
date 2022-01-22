@@ -8,6 +8,7 @@ Created on Fri Jan 21 13:51:39 2022
 import nest_asyncio
 nest_asyncio.apply()
 
+import time
 import os
 from axie_helper import compile_data, get_sheet, embed_axie_tx
 from config import WALLETS
@@ -40,11 +41,14 @@ async def get_excel(ctx, rank_bound):
     try:
         start = int(rank_bound.split('-')[0])
         end = int(rank_bound.split('-')[1])
-        data = compile_data(start, end)
-        get_sheet(data, 'axie')
-        await ctx.send(file=discord.File('axie.xlsx'))
     except:
         await ctx.send("Improper command use. Use format: `+excel 1-30`")
+        return
+    data = compile_data(start, end)
+    await ctx.send("Compiled data. Generating excel file...")
+    time.sleep(3)
+    get_sheet(data, 'axie')
+    await ctx.send(file=discord.File('axie.xlsx'))      
         
 @bot.command(name='axies',
              description='Return axie transactions',

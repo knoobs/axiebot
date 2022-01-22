@@ -7,20 +7,21 @@ Created on Fri Jan 21 12:08:49 2022
 
 import requests
 import json
-from config import URL, USER_AGENTS
+from config import URL, USER_AGENTS, PAYLOADS
 from scipy import stats
 import xlwt
 from datetime import datetime
 import discord
 
-headers = {
-        'Accept': '*/*',
-        'User-Agent': USER_AGENTS.DEFAULT
-        }
-payload = {}
 
 def read_page(url):
     # Read api
+    
+    headers = {
+        'Accept': '*/*',
+        'User-Agent': USER_AGENTS.DEFAULT
+        }
+    payload = {}
     
     response = requests.request("GET", url, headers=headers, data=payload)
     if response.status_code != 200:
@@ -80,6 +81,9 @@ def compile_data(start=1, end=10):
         
         # Get axie data
         axie_data = get_axie_stats(str(most_win_team[0]),str(most_win_team[1]),str(most_win_team[2]))
+        similar_sales = get_price_similar(str(most_win_team[0]),str(most_win_team[1]),str(most_win_team[2]))
+        for i, axie in enumerate(axie_data):
+            axie.update({ 'for_sale' : similar_sales[i] })  
         data[val['rank']].update({ 'team' : axie_data })
             
     return data
@@ -90,14 +94,15 @@ def get_sheet(data, filename):
     workbook = xlwt.Workbook()
     sheet = workbook.add_sheet("Player Axies")
     row, col = 1, 0
-
-    # Place titles
-    sheet.write(0,2,'Most Winning Team')
-    titles = ['Rank/Name/Address','Axie 1','Axie 2','Axie 3']
-    for name in titles:
-        sheet.write(row, col, name)
-        col+=1
-    row, col = 2, 0
+    
+    titles = ['Rank/Name/Address',
+                  'Axie 1','Similar ID','Price',' ',
+                  'Axie 2','Similar ID','Price',' ',
+                  'Axie 3','Similar ID','Price',' ']
+    style = xlwt.XFStyle()
+    font = xlwt.Font()
+    font.bold = True
+    style.font = font
     
     # Place data
     for rank, p_data in data.items():
@@ -109,11 +114,18 @@ def get_sheet(data, filename):
         except:
             continue
         
+        # Place titles
+        for header in titles:
+            sheet.write(row-1, col, header, style=style)
+            col+=1
+        col = 0
+           
+        # Place data
         sheet.write(row, col, rank)
         sheet.write(row+1, col, name)
         sheet.write(row+2, col, addr)
         for i, axie in enumerate(axies):
-            shift = int(i)+1
+            shift = 4*int(i)+1
             sheet.write(row, col+shift, axie['class'])
             sheet.write(row+1, col+shift, axie['parts'][3]['name'])
             sheet.write(row+2, col+shift, axie['parts'][4]['name'])
@@ -123,7 +135,18 @@ def get_sheet(data, filename):
             sheet.write(row+5, col+shift, stats)
             sheet.write(row+6, col+shift, axie['figure']['image'])
             
-        row+=8
+            try:
+                for j in range(7):
+                    price_weth = int(axie['for_sale'][j]['auction']['currentPrice'])/(1E18)
+                    price_usd  = float(axie['for_sale'][j]['auction']['currentPriceUSD'])
+                    axie_id = axie['for_sale'][j]['id']
+                    sheet.write(row+j, col+shift+2,
+                                f"{str(round(price_weth,3))} | ${str(round(price_usd,2))}")
+                    sheet.write(row+j, col+shift+1, axie_id)
+            except:
+                continue
+            
+        row+=9
         
     workbook.save(filename.split('.')[0]+'.xlsx')
         
@@ -222,14 +245,66 @@ def axie_profit(addr):
                     profit += tx['weth']
                     
     return round(profit,3)
+
+def querify_payload(payload):
+    
+    with open('test.json','w') as f:
+        json.dump(payload, f)
+    
+    with open('test.json','r') as f:
+        payload = f.readlines()[0]
+        
+    return payload
+
+def ping_graphql(payload):
+    
+    headers = {
+    'content-type': "application/json",
+    'cache-control': "no-cache",
+    }
+
+    payload = querify_payload(payload)
+    response = requests.request("POST", URL.GRAPHQL, data=payload, headers=headers)
+    data = json.loads(response.text)
+    
+    return data
+    
+def get_price_similar(*argv):
+    # Get price of axies with same parts/type as id
+    
+    data = get_axie_stats(*argv)
+    if not isinstance(data, list):
+        data = [data]
+        
+    # Get search criteria
+    return_data = []
+    for axie in data:
+        parts = []
+        for part in axie["parts"]:
+            if part["type"].lower() in ['mouth','eyes','back','horn']:
+                parts.append(part['id'])
+        criteria = {
+            "classes" : [axie["class"]],
+            "parts" : parts
+            }
+        
+        # Get payload
+        payload = PAYLOADS.GET_AXIE_BRIEF_LIST
+        payload["variables"]["criteria"] = criteria
+        
+        return_data.append(ping_graphql(payload)['data']['axies']['results'])
+    
+    return return_data    
     
 
 if __name__ == '__main__':
-    #data_axie = get_axie_stats("123","1234","12345")
-    #data_leader = get_leaderboard()
+    #data_axie = get_axie_stats("1234")
+    #data_leader = get_leaderboard(1,5)
     #data_pvp = get_pvp_log('0x379f949790224820f969d92003e1f714ba02cee1')
-    #data = compile_data()
+    data = compile_data(1,5)
     print('goose snacks')
-    #get_sheet(data, 'axies')
+    get_sheet(data, 'axies')
     #data = get_axie_tx('0xb5bbaee57faee6b5fa32e23b42409f13ab06e96b')
-    embed_axie_tx('0xb5bbaee57faee6b5fa32e23b42409f13ab06e96b')
+    #embed_axie_tx('0xb5bbaee57faee6b5fa32e23b42409f13ab06e96b')
+    #data = get_price_similar('123')
+    
